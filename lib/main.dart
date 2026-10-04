@@ -1,6 +1,9 @@
-import 'package:flutter/material.dart';
-import 'package:predictme/ui/predict_me_app.dart';
+import 'package:flutter/widgets.dart';
 
-void main() {
+import 'bootstrap.dart';
+import 'predict_me_app.dart';
+
+Future<void> main() async {
+  await bootstrap();
   runApp(const PredictMeApp());
 }

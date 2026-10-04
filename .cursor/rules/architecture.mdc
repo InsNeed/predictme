@@ -1,0 +1,29 @@
+---
+description: Predict Me 的架构、日志、数据库和 Dio。改 lib/ 前先读。
+alwaysApply: true
+---
+
+# Predict Me
+
+Flutter 客户端。用户写一条要预测的事，本地生成人设，并行调用 DeepSeek，再汇总。没有 Firebase。
+
+# 架构
+
+Clean Architecture。依赖方向：`presentation → domain ← data`。domain 不 import data 或 presentation。presentation 通过 use case / repository，不直接调用 Dio。
+
+统一结果：`lib/core/errors/` 的 `Result`、`Success`、`Failure`。失败按来源分成 `LocalFailure`、`RemoteFailure`、`SystemFailure`。
+
+# 基础设施
+
+- 日志：`lib/core/logging/app_logger.dart`（LogLens）。不要在业务页另起一套 `print`。
+- 数据库：Drift，`lib/core/database/local_database.dart`。人设和运行记录进这里。
+- 网络：`lib/core/network/dio_client.dart`。超时、日志拦截器和错误转换走这一层。Authorization 头在日志里打码。
+- 依赖注入：GetIt，`lib/core/injection.dart`。启动顺序在 `lib/bootstrap.dart`：先日志，再注册依赖。
+
+# 密钥
+
+DeepSeek 密钥只放在 gitignore 的 `config/deepseek.local.json`。不要写进源码、测试夹具或提交。缺密钥时给出页面状态，不要让应用崩溃。
+
+# 决策设定
+
+人设如何做这一次判断，以决策科学教材为准：下层约束上层；特质只说明趋势，不决定这一次；框架、情绪、情境和用户的原话可以改变这一次。不要把教材明确排除的说法写回提示或代码。
