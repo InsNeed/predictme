@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/config/deepseek_config.dart';
 import '../../../core/config/live_call_quota.dart';
@@ -26,13 +27,17 @@ class PredictionRepositoryImpl implements PredictionRepository {
     this.populationSize = kDefaultPopulationSize,
     this.newId,
     this.now,
-  });
+    bool? browserBlocksLiveCalls,
+  }) : browserBlocksLiveCalls = browserBlocksLiveCalls ?? kIsWeb;
 
   final LocalDatabase? database;
   final PersonaJudge judge;
   final int populationSize;
   final String Function()? newId;
   final DateTime Function()? now;
+
+  /// Web 上不向 DeepSeek 发请求。测试可显式打开。
+  final bool browserBlocksLiveCalls;
 
   AppCancelToken? _active;
 
@@ -91,6 +96,25 @@ class PredictionRepositoryImpl implements PredictionRepository {
       );
     }
 
+    if (browserBlocksLiveCalls) {
+      final session = _session(
+        message: trimmed,
+        populationSize: population.length,
+        liveCalls: 0,
+        model: config.model,
+        results: [
+          for (final persona in preview) PersonaCallResult(persona: persona),
+        ],
+        status: PredictionStatus.browserBlocked,
+        statusMessage: browserLiveCallBlockedMessage,
+      );
+      return _persist(
+        session: session,
+        population: population,
+        calledIds: const {},
+      );
+    }
+
     _active?.cancel('replaced');
     final token = AppCancelToken();
     _active = token;
@@ -110,7 +134,10 @@ class PredictionRepositoryImpl implements PredictionRepository {
       PredictionStatus.completed => '这一次问完了。比例只来自下面实呼成功的人，不是全国比例。',
       PredictionStatus.partial => '有的人没有返回。下面的比例只算成功的人。',
       PredictionStatus.failed => '这次没有人返回可用的判断。',
-      PredictionStatus.missingKey || PredictionStatus.emptyMessage => '',
+      PredictionStatus.missingKey ||
+      PredictionStatus.emptyMessage ||
+      PredictionStatus.browserBlocked =>
+        '',
     };
     final session = _session(
       message: trimmed,

@@ -27,6 +27,22 @@ dart run build_runner build --delete-conflicting-outputs
 flutter run
 ```
 
+浏览器：
+
+```bash
+flutter run -d chrome
+```
+
+或先构建再由本机打开：
+
+```bash
+flutter build web
+```
+
+Web 使用 Drift 的 sqlite wasm。`web/sqlite3.wasm` 和 `web/drift_worker.js` 来自与 `pubspec.lock` 相同的 drift 2.35.1 发行包，需要和页面放在同一目录。静态服务器要把 wasm 标成 `Content-Type: application/wasm`。`flutter run` 会带上这个类型。
+
+没有密钥时，Web 和桌面走同一条路：生成本地人口，抽出这次要问的人，并说明没有发出请求。浏览器直接请求 DeepSeek 会被跨域拦住，所以 Web 上即使配置里有密钥也不会发出请求，页面会写明原因。这里不加后端。
+
 ## 检查
 
 ```bash

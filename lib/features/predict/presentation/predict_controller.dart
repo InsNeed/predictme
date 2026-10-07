@@ -82,10 +82,15 @@ class PredictController extends ChangeNotifier {
     config = loaded.config;
     liveCalls = loaded.config.maxParallelCalls;
     callCountNote = loaded.callCountNote;
-    banner = loaded.problem ??
-        (loaded.config.hasKey
-            ? '密钥已从本机配置读取，界面上不显示密钥。'
-            : '还没有 DeepSeek 密钥。把临时密钥写进 config/deepseek.local.json。可以先生成本地人口，但不会发出请求。');
+    banner =
+        loaded.problem ??
+        (kIsWeb
+            ? (loaded.config.hasKey
+                  ? browserLiveCallBlockedMessage
+                  : '还没有 DeepSeek 密钥。可以先生成本地人口，但不会发出请求。$browserLiveCallBlockedMessage')
+            : (loaded.config.hasKey
+                  ? '密钥已从本机配置读取，界面上不显示密钥。'
+                  : '还没有 DeepSeek 密钥。把临时密钥写进 config/deepseek.local.json。可以先生成本地人口，但不会发出请求。'));
   }
 
   void _notify() {

@@ -5,9 +5,11 @@ import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:predictme/core/config/deepseek_config.dart';
+import 'package:predictme/core/config/deepseek_config_candidates_io.dart';
 import 'package:predictme/core/config/deepseek_config_loader.dart';
 import 'package:predictme/core/config/live_call_quota.dart';
 import 'package:predictme/core/database/local_database.dart';
+import 'package:predictme/core/errors/app_exception.dart';
 import 'package:predictme/core/errors/error_mapper.dart';
 import 'package:predictme/core/network/cancellation_token.dart';
 import 'package:predictme/core/network/dio_client.dart';
@@ -40,7 +42,9 @@ void main() {
     final dir = Directory.systemTemp.createTempSync('predictme-config');
     addTearDown(() => dir.deleteSync(recursive: true));
     final broken = File('${dir.path}/deepseek.local.json')..writeAsStringSync('{');
-    final bad = await DeepSeekConfigLoader(candidates: [broken]).load();
+    final bad = await DeepSeekConfigLoader(
+      candidates: [FileDeepSeekConfigSource(broken)],
+    ).load();
     expect(bad.config.hasKey, isFalse);
     expect(bad.problem, contains('无法读取'));
 
@@ -52,7 +56,9 @@ void main() {
           'model': '',
         }),
       );
-    final loaded = await DeepSeekConfigLoader(candidates: [file]).load();
+    final loaded = await DeepSeekConfigLoader(
+      candidates: [FileDeepSeekConfigSource(file)],
+    ).load();
     expect(loaded.config.apiKey, 'secret-key');
     expect(loaded.config.maxParallelCalls, 8);
     expect(loaded.config.model, DeepSeekConfig.defaultModel);
@@ -150,6 +156,37 @@ void main() {
     expect(messages.first['content'], '此人甲');
   });
 
+  test('web judge does not send a request', () async {
+    final dio = Dio(BaseOptions(baseUrl: 'https://api.deepseek.com'));
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          throw StateError('should not call');
+        },
+      ),
+    );
+    final judge = DeepSeekPersonaJudge(
+      client: DioClient.fromDio(dio),
+      config: const DeepSeekConfig(
+        apiKey: 'secret-key',
+        baseUrl: DeepSeekConfig.defaultBaseUrl,
+        model: DeepSeekConfig.defaultModel,
+        maxParallelCalls: 3,
+      ),
+      blockNetwork: true,
+    );
+    await expectLater(
+      judge.complete(system: '此人甲', user: '会不会用'),
+      throwsA(
+        isA<RemoteException>().having(
+          (error) => error.message,
+          'message',
+          browserLiveCallBlockedMessage,
+        ),
+      ),
+    );
+  });
+
   test('missing key stores the population and does not call the model', () async {
     final judge = _ScriptJudge((system, user) async {
       throw StateError('should not call');
@@ -177,6 +214,41 @@ void main() {
     final runs = await database.select(database.storedRuns).get();
     final personas = await database.select(database.storedPersonas).get();
     expect(runs, hasLength(1));
+    expect(personas, hasLength(24));
+    expect(personas.where((row) => row.wasCalled), isEmpty);
+  });
+
+  test('browser does not call the model even when a key is present', () async {
+    final judge = _ScriptJudge((system, user) async {
+      throw StateError('should not call');
+    });
+    final database = LocalDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repository = PredictionRepositoryImpl(
+      database: database,
+      judge: judge,
+      populationSize: 24,
+      newId: () => 'run-web',
+      browserBlocksLiveCalls: true,
+    );
+    final session = await repository.run(
+      message: '人们会不会用，会不会付钱',
+      liveCalls: 3,
+      config: const DeepSeekConfig(
+        apiKey: 'secret-key',
+        baseUrl: DeepSeekConfig.defaultBaseUrl,
+        model: DeepSeekConfig.defaultModel,
+        maxParallelCalls: 3,
+      ),
+    );
+    expect(session.status, PredictionStatus.browserBlocked);
+    expect(session.statusMessage, browserLiveCallBlockedMessage);
+    expect(session.populationSize, 24);
+    expect(session.liveCalls, 0);
+    expect(judge.calls, 0);
+    expect(session.results, hasLength(3));
+    expect(session.results.every((result) => !result.called), isTrue);
+    final personas = await database.select(database.storedPersonas).get();
     expect(personas, hasLength(24));
     expect(personas.where((row) => row.wasCalled), isEmpty);
   });

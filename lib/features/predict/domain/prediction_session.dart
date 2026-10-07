@@ -2,7 +2,17 @@ import 'aggregate.dart';
 import 'judgement.dart';
 import 'persona.dart';
 
-enum PredictionStatus { missingKey, completed, partial, failed, emptyMessage }
+enum PredictionStatus {
+  missingKey,
+  completed,
+  partial,
+  failed,
+  emptyMessage,
+  browserBlocked,
+}
+
+/// 浏览器直接请求 DeepSeek 会被跨域拦住。不发出请求时用这句话。
+const browserLiveCallBlockedMessage = '浏览器无法直接请求 DeepSeek（跨域限制），这次没有发出请求。';
 
 class PersonaCallResult {
   const PersonaCallResult({

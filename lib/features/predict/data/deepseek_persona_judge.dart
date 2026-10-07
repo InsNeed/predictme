@@ -1,19 +1,26 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/config/deepseek_config.dart';
+import '../../../core/errors/app_exception.dart';
 import '../../../core/network/cancellation_token.dart';
 import '../../../core/network/dio_client.dart';
 import '../domain/persona_judge.dart';
+import '../domain/prediction_session.dart';
 
 /// OpenAI 兼容的 DeepSeek 对话补全。思考模式关闭，避免小额度被长推理打光。
 class DeepSeekPersonaJudge implements PersonaJudge {
   DeepSeekPersonaJudge({
     required this._client,
     required this.config,
-  });
+    bool? blockNetwork,
+  }) : blockNetwork = blockNetwork ?? kIsWeb;
 
   final DioClient _client;
   final DeepSeekConfig config;
+
+  /// 为真时不创建 HTTP 请求。Web 默认如此。
+  final bool blockNetwork;
 
   static const maxTokens = 800;
 
@@ -23,6 +30,9 @@ class DeepSeekPersonaJudge implements PersonaJudge {
     required String user,
     AppCancelToken? cancel,
   }) async {
+    if (blockNetwork) {
+      throw const RemoteException(browserLiveCallBlockedMessage);
+    }
     final response = await _client.post<dynamic>(
       '/chat/completions',
       data: {
@@ -37,9 +47,7 @@ class DeepSeekPersonaJudge implements PersonaJudge {
         'max_tokens': maxTokens,
         'stream': false,
       },
-      options: Options(
-        headers: {'Authorization': 'Bearer ${config.apiKey}'},
-      ),
+      options: Options(headers: {'Authorization': 'Bearer ${config.apiKey}'}),
       cancelToken: cancel?.dioToken,
     );
     return _readContent(response.data);
