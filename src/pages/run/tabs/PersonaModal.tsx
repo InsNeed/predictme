@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react';
 import { Chart, PALETTE } from '@/components/Chart';
+import { Thumbs } from '@/components/ImagePicker';
 import { Card, MiniBar } from '@/components/ui';
 import { buildSystem, buildUser } from '@/domain/prompts';
 import { makeRng } from '@/domain/rng';
@@ -199,13 +200,24 @@ export function PersonaModal({ run, personaId, onClose }: { run: Run; personaId:
           {rec && <span className="tiny muted">耗时 {(rec.ms / 1000).toFixed(1)} 秒 · 输入 {rec.usage.hit + rec.usage.miss}（命中缓存 {rec.usage.hit}）· 输出 {rec.usage.out} tokens · ¥{rec.cost.toFixed(4)}</span>}
         </div>
         {showReasoning && rec?.reasoning && <pre className="card small mt8" style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>{rec.reasoning}</pre>}
-        {showPrompt && (
-          <pre className="card small mt8" style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--mono)', fontSize: 11 }}>
-            {buildSystem(run.config, variant, p.exposure)}
-            {'\n\n──────── 用户消息 ────────\n\n'}
-            {buildUser(run.config, variant, p, makeRng(1), undefined, rec?.optionOrder).text}
-          </pre>
-        )}
+        {showPrompt && (() => {
+          const user = buildUser(run.config, variant, p, makeRng(1), undefined, rec?.optionOrder);
+          return (
+            <>
+              {user.images.length > 0 && (
+                <div className="mt8">
+                  <div className="tiny muted" style={{ marginBottom: 6 }}>用户消息开头附带 {user.images.length} 张截图（{EXPOSURE_LABEL[p.exposure]}的人看到的部分）</div>
+                  <Thumbs images={user.images} small />
+                </div>
+              )}
+              <pre className="card small mt8" style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--mono)', fontSize: 11 }}>
+                {buildSystem(run.config, variant, p.exposure)}
+                {'\n\n──────── 用户消息 ────────\n\n'}
+                {user.text}
+              </pre>
+            </>
+          );
+        })()}
       </div>
     </div>
   );

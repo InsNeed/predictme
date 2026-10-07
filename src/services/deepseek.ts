@@ -3,9 +3,22 @@ import { getApiKey } from '@/storage/settings';
 
 const BASE = 'https://api.deepseek.com';
 
+export type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string; detail: 'auto' } };
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | ContentPart[];
+}
+
+// 图片放在文字前面：同一批图的请求前缀一致，才能命中缓存。DeepSeek 只接受用户消息里的图片。
+export function userContent(text: string, images: string[]): ChatMessage['content'] {
+  if (!images.length) return text;
+  return [
+    ...images.map((url) => ({ type: 'image_url' as const, image_url: { url, detail: 'auto' as const } })),
+    { type: 'text' as const, text },
+  ];
 }
 
 export interface ChatOptions {

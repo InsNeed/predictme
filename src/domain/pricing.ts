@@ -1,10 +1,26 @@
-import type { CostSpec, Detail, ModelId, ThinkingLevel, Usage } from './types';
+import type { CostSpec, Detail, Exposure, ModelId, ThinkingLevel, Usage } from './types';
 
 // 元 / 百万 tokens，高峰价。空闲时段为一半。来源：DeepSeek 官方价格页。
 export const PRICES: Record<ModelId, { hit: number; miss: number; out: number; label: string }> = {
   'deepseek-flash': { hit: 0.04, miss: 2, out: 8, label: 'V4.1 Flash' },
   'deepseek-v4-pro': { hit: 0.3, miss: 9, out: 27, label: 'V4 Pro' },
+  'deepseek-v4-flash-vision-exp': { hit: 0.04, miss: 2, out: 8, label: 'V4 Flash 识图' },
 };
+
+export const VISION_MODEL: ModelId = 'deepseek-v4-flash-vision-exp';
+export const MAX_IMAGES = 6;
+// DeepSeek 按每张图最多 384 tokens 计费。
+export const IMAGE_TOKENS = 384;
+export const IMAGES_SEEN: Record<Exposure, number> = { glance: 1, store: 3, full: MAX_IMAGES };
+
+export function supportsVision(model: ModelId): boolean {
+  return model === VISION_MODEL;
+}
+
+export function avgImagesSeen(count: number, mix: Record<Exposure, number>): number {
+  const total = mix.glance + mix.store + mix.full || 1;
+  return (Object.keys(IMAGES_SEEN) as Exposure[]).reduce((s, k) => s + Math.min(count, IMAGES_SEEN[k]) * (mix[k] / total), 0);
+}
 
 export function isPeakNow(d = new Date()): boolean {
   const bj = new Date(d.getTime() + (d.getTimezoneOffset() + 480) * 60000);
@@ -39,12 +55,12 @@ export interface Estimate {
   peak: boolean;
 }
 
-export function estimate(cost: CostSpec, variantB: boolean, aspects: number): Estimate {
+export function estimate(cost: CostSpec, variantB: boolean, aspects: number, avgImages = 0): Estimate {
   const peak = isPeakNow();
   const perPersona = (variantB ? 2 : 1) + cost.retestShare;
   const calls = Math.round(cost.sampleSize * perPersona);
   const systemTokens = 1500 + aspects * 30;
-  const userTokens = 700;
+  const userTokens = 700 + avgImages * IMAGE_TOKENS;
   const out = OUT_BY_DETAIL[cost.detail] + THINK_TOKENS[cost.thinking];
   const u: Usage = { hit: systemTokens * 0.85, miss: systemTokens * 0.15 + userTokens, out, reasoning: 0 };
   const perCall = costOf(cost.model, u, peak);

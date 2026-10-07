@@ -1,8 +1,16 @@
+import { get, set } from 'idb-keyval';
 import { defaultConfig } from '@/domain/defaults';
 import type { RunConfig } from '@/domain/types';
 
 const KEY_STORAGE = 'crowdlab.apiKey';
 const DRAFT_STORAGE = 'crowdlab.draft';
+// 截图体积大，放进 localStorage 很快会超出配额，所以单独存 IndexedDB。
+const DRAFT_IMAGES = 'crowdlab:draftImages';
+
+export interface DraftImages {
+  product: string[];
+  variantB: string[];
+}
 
 export function getApiKey(): string {
   return localStorage.getItem(KEY_STORAGE) || __DEV_API_KEY__ || '';
@@ -29,6 +37,22 @@ export function loadDraft(): RunConfig {
   return defaultConfig();
 }
 
+export async function loadDraftImages(): Promise<DraftImages> {
+  try {
+    const d = (await get(DRAFT_IMAGES)) as Partial<DraftImages> | undefined;
+    return { product: d?.product ?? [], variantB: d?.variantB ?? [] };
+  } catch {
+    return { product: [], variantB: [] };
+  }
+}
+
+let lastImages: { product?: string[]; variantB?: string[] } | null = null;
+
 export function saveDraft(cfg: RunConfig) {
-  localStorage.setItem(DRAFT_STORAGE, JSON.stringify(cfg));
+  const { images, ...product } = cfg.product;
+  const { images: bImages, ...variantB } = cfg.variantB;
+  localStorage.setItem(DRAFT_STORAGE, JSON.stringify({ ...cfg, product, variantB }));
+  if (lastImages && lastImages.product === images && lastImages.variantB === bImages) return;
+  lastImages = { product: images, variantB: bImages };
+  void set(DRAFT_IMAGES, { product: images ?? [], variantB: bImages ?? [] } satisfies DraftImages);
 }

@@ -1,7 +1,7 @@
 export type Exposure = 'glance' | 'store' | 'full';
 export type ThinkingLevel = 'off' | 'low' | 'high' | 'max';
 export type Detail = 'brief' | 'standard' | 'deep';
-export type ModelId = 'deepseek-flash' | 'deepseek-v4-pro';
+export type ModelId = 'deepseek-flash' | 'deepseek-v4-pro' | 'deepseek-v4-flash-vision-exp';
 export type VariantId = 'A' | 'B';
 export type CallKind = 'main' | 'retest';
 
@@ -27,6 +27,8 @@ export interface ProductSpec {
   cardForTrial: boolean;
   alternative: string;
   storeRating: string;
+  /** 界面截图，压缩后的 data URL，按展示顺序排列 */
+  images?: string[];
 }
 
 export interface VariantB {
@@ -39,6 +41,7 @@ export interface VariantB {
   pricePeriod?: ProductSpec['pricePeriod'];
   priceFraming?: string;
   trialDefault?: ProductSpec['trialDefault'];
+  images?: string[];
 }
 
 export interface AudienceSpec {

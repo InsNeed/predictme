@@ -30,11 +30,11 @@ export function Stat({ label, value, unit, foot, accent }: { label: string; valu
   );
 }
 
-export function Seg<T extends string>({ value, options, onChange }: { value: T; options: { v: T; l: ReactNode }[]; onChange: (v: T) => void }) {
+export function Seg<T extends string>({ value, options, onChange }: { value: T; options: { v: T; l: ReactNode; disabled?: boolean; title?: string }[]; onChange: (v: T) => void }) {
   return (
     <div className="seg">
       {options.map((o) => (
-        <button key={o.v} className={o.v === value ? 'on' : ''} onClick={() => onChange(o.v)} type="button">
+        <button key={o.v} className={o.v === value ? 'on' : ''} onClick={() => onChange(o.v)} type="button" disabled={o.disabled} title={o.title}>
           {o.l}
         </button>
       ))}

@@ -1,9 +1,9 @@
 import { plannedTasks, type Task } from '@/domain/plan';
-import { costOf, estimate, maxTokensFor } from '@/domain/pricing';
-import { buildSystem, buildUser, normalizeAnswer } from '@/domain/prompts';
+import { avgImagesSeen, costOf, estimate, maxTokensFor } from '@/domain/pricing';
+import { buildSystem, buildUser, normalizeAnswer, personaModel } from '@/domain/prompts';
 import { makeRng } from '@/domain/rng';
 import type { CallRecord, Run } from '@/domain/types';
-import { ApiError, chat, parseJsonLoose } from './deepseek';
+import { ApiError, chat, parseJsonLoose, userContent } from './deepseek';
 import { generateReport } from './report';
 import { saveRun } from '@/storage/runs';
 
@@ -77,7 +77,7 @@ export class Runner {
 
   private pump() {
     const cfg = this.run.config;
-    const est = estimate(cfg.cost, cfg.variantB.enabled, cfg.aspects.length);
+    const est = estimate(cfg.cost, cfg.variantB.enabled, cfg.aspects.length, avgImagesSeen(cfg.product.images?.length ?? 0, cfg.audience.exposureMix));
     const recs = Object.values(this.run.calls);
     const perCall = recs.length >= 3 ? recs.reduce((s, r) => s + r.cost, 0) / recs.length : est.perCall;
     while (!this.stopped && this.inflight < cfg.cost.concurrency && this.queue.length) {
@@ -150,6 +150,7 @@ export class Runner {
     const rng = makeRng(cfg.seed * 31 + persona.idx * 7 + (t.variant === 'B' ? 3 : 0) + (t.kind === 'retest' ? 11 : 0));
     const system = buildSystem(cfg, t.variant, persona.exposure);
     const user = buildUser(cfg, t.variant, persona, rng, retestOf);
+    const model = personaModel(cfg);
     const started = performance.now();
     let attempt = 0;
     const usageSum = { hit: 0, miss: 0, out: 0, reasoning: 0 };
@@ -158,7 +159,7 @@ export class Runner {
       attempt++;
       try {
         const res = await chat({
-          model: cfg.cost.model,
+          model,
           thinking: cfg.cost.thinking,
           temperature: cfg.cost.temperature,
           maxTokens: maxTokensFor(cfg.cost.detail, cfg.cost.thinking),
@@ -166,14 +167,14 @@ export class Runner {
           signal: this.controller.signal,
           messages: [
             { role: 'system', content: system },
-            { role: 'user', content: user.text },
+            { role: 'user', content: userContent(user.text, user.images) },
           ],
         });
         usageSum.hit += res.usage.hit;
         usageSum.miss += res.usage.miss;
         usageSum.out += res.usage.out;
         usageSum.reasoning += res.usage.reasoning;
-        const c = costOf(cfg.cost.model, res.usage);
+        const c = costOf(model, res.usage);
         costSum += c;
         run.spent += c;
         if (res.finish === 'length') throw new ApiError('回答被截断', 0, true);

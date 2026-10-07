@@ -1,7 +1,8 @@
 import { COUNTRY_BY_ID } from './markets';
 import { levelWord } from './personaGen';
+import { IMAGES_SEEN, supportsVision, VISION_MODEL } from './pricing';
 import type { Rng } from './rng';
-import type { Answer, Aspect, Choice, Detail, Exposure, Persona, ProductSpec, RunConfig, VariantId } from './types';
+import type { Answer, Aspect, Choice, Detail, Exposure, ModelId, Persona, ProductSpec, RunConfig, VariantId } from './types';
 import { ATTRACTION_TAGS, CONCERN_TAGS, EMOTIONS, PRICE_FEELS, TIMINGS, TRAIT_LABEL } from './vocab';
 
 export function productFor(cfg: RunConfig, v: VariantId): ProductSpec {
@@ -15,7 +16,31 @@ export function productFor(cfg: RunConfig, v: VariantId): ProductSpec {
   if (b.pricePeriod) p.pricePeriod = b.pricePeriod;
   if (b.priceFraming != null && b.priceFraming !== '') p.priceFraming = b.priceFraming;
   if (b.trialDefault) p.trialDefault = b.trialDefault;
+  if (b.images?.length) p.images = b.images;
   return p;
+}
+
+export function imagesFor(p: ProductSpec, exposure: Exposure): string[] {
+  return (p.images ?? []).slice(0, IMAGES_SEEN[exposure]);
+}
+
+export function firstSeenBy(index: number): Exposure {
+  return (['glance', 'store', 'full'] as const).find((k) => index < IMAGES_SEEN[k]) ?? 'full';
+}
+
+export function hasImages(cfg: RunConfig): boolean {
+  return Boolean(cfg.product.images?.length || (cfg.variantB.enabled && cfg.variantB.images?.length));
+}
+
+export function personaModel(cfg: RunConfig): ModelId {
+  return hasImages(cfg) && !supportsVision(cfg.cost.model) ? VISION_MODEL : cfg.cost.model;
+}
+
+function imageLine(p: ProductSpec, exposure: Exposure): string[] {
+  const n = imagesFor(p, exposure).length;
+  if (!n) return [];
+  const what = exposure === 'glance' ? '扫到的那一屏画面' : exposure === 'store' ? '商店页/落地页上的截图' : '介绍里附带的截图';
+  return [`- 你还看到了${what}，共 ${n} 张，就是用户消息开头的图片。图里能看到的东西你都看到了，没出现在图里的就不知道。`];
 }
 
 function fmtMoney(x: number, cur: string): string {
@@ -55,6 +80,7 @@ function productBlock(p: ProductSpec, exposure: Exposure): string {
     lines.push(`- 名字：${p.name}`);
     lines.push(`- 一句话：${p.tagline}`);
     lines.push(`- 类型：${p.category}，${p.form}`);
+    lines.push(...imageLine(p, exposure));
     lines.push('其他信息你都没有看到。');
   } else if (exposure === 'store') {
     const short = p.description.length > 160 ? `${p.description.slice(0, 160)}……` : p.description;
@@ -65,6 +91,7 @@ function productBlock(p: ProductSpec, exposure: Exposure): string {
     lines.push(`- 简介（你只看了开头）：${short}`);
     if (p.storeRating) lines.push(`- 评分/口碑：${p.storeRating}`);
     lines.push(`- ${trialText(p)}`);
+    lines.push(...imageLine(p, exposure));
     lines.push('更细的功能说明你没有读。');
   } else {
     lines.push('你认真读完了它的完整介绍：');
@@ -74,6 +101,7 @@ function productBlock(p: ProductSpec, exposure: Exposure): string {
     lines.push(`- 完整介绍：${p.description}`);
     if (p.storeRating) lines.push(`- 评分/口碑：${p.storeRating}`);
     lines.push(`- ${trialText(p)}`);
+    lines.push(...imageLine(p, exposure));
   }
   return lines.join('\n');
 }
@@ -188,6 +216,7 @@ ${persona.moment}，心情${persona.mood}；${persona.recentEvent}。
 export interface BuiltUser {
   text: string;
   order: Choice[];
+  images: string[];
 }
 
 export function buildUser(cfg: RunConfig, v: VariantId, persona: Persona, rng: Rng, retestOf?: Choice[], fixedOrder?: Choice[]): BuiltUser {
@@ -209,7 +238,7 @@ ${order.map((c, i) => `${letters[i]}. ${texts[c]}`).join('\n')}
 choice 字段只填字母。
 ${extra.length ? `\n【研究者追加的问题】请写进 extra_answers，用这个人的口吻：\n${extra.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n` : ''}
 现在以 ${persona.name} 的身份输出 JSON。`;
-  return { text, order };
+  return { text, order, images: imagesFor(p, persona.exposure) };
 }
 
 const num = (x: unknown, lo: number, hi: number, d: number) => {

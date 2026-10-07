@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ImagePicker, Thumbs } from '@/components/ImagePicker';
 import { Card, Field, Seg, SliderRow } from '@/components/ui';
 import { framingChecks, morwitzChecks, type Check } from '@/domain/checks';
 import { COST_PRESETS, EXAMPLES } from '@/domain/defaults';
 import { AUDIENCE_PRESETS, COUNTRIES, GROUPS } from '@/domain/markets';
 import { generatePersonas } from '@/domain/personaGen';
-import { estimate, PRICES, yuan } from '@/domain/pricing';
-import { buildSystem, buildUser } from '@/domain/prompts';
+import { avgImagesSeen, estimate, PRICES, supportsVision, VISION_MODEL, yuan } from '@/domain/pricing';
+import { buildSystem, buildUser, hasImages } from '@/domain/prompts';
 import { makeRng } from '@/domain/rng';
 import { go } from '@/app/router';
 import { getRunner, registerRun } from '@/state/runs';
-import { loadDraft, saveDraft } from '@/storage/settings';
-import type { Exposure, Persona, RunConfig } from '@/domain/types';
+import { loadDraft, loadDraftImages, saveDraft } from '@/storage/settings';
+import type { Exposure, ModelId, Persona, RunConfig } from '@/domain/types';
 import { CATEGORIES, DEFAULT_ASPECTS, EXPOSURE_LABEL, FORMS, PRICING_MODELS } from '@/domain/vocab';
 
 function CheckList({ items }: { items: Check[] }) {
@@ -34,10 +35,27 @@ export function NewRun() {
   const [preview, setPreview] = useState<Persona[] | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [imagesReady, setImagesReady] = useState(false);
 
   useEffect(() => {
-    saveDraft(cfg);
-  }, [cfg]);
+    let alive = true;
+    void loadDraftImages().then((d) => {
+      if (!alive) return;
+      setCfg((c) => ({ ...c, product: { ...c.product, images: d.product }, variantB: { ...c.variantB, images: d.variantB } }));
+      setImagesReady(true);
+    });
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    // 图片还没从 IndexedDB 读回来时保存，会把已存的图片覆盖成空。
+    if (imagesReady) saveDraft(cfg);
+  }, [cfg, imagesReady]);
+
+  const withImages = hasImages(cfg);
+  useEffect(() => {
+    if (withImages && !supportsVision(cfg.cost.model)) setCfg((c) => ({ ...c, cost: { ...c.cost, model: VISION_MODEL } }));
+  }, [withImages, cfg.cost.model]);
 
   const p = cfg.product;
   const setP = (patch: Partial<RunConfig['product']>) => setCfg((c) => ({ ...c, product: { ...c.product, ...patch } }));
@@ -46,7 +64,11 @@ export function NewRun() {
   const setC = (patch: Partial<RunConfig['cost']>) => setCfg((c) => ({ ...c, cost: { ...c.cost, ...patch } }));
   const setB = (patch: Partial<RunConfig['variantB']>) => setCfg((c) => ({ ...c, variantB: { ...c.variantB, ...patch } }));
 
-  const est = useMemo(() => estimate(cfg.cost, cfg.variantB.enabled, cfg.aspects.length), [cfg.cost, cfg.variantB.enabled, cfg.aspects.length]);
+  const avgImages = avgImagesSeen(cfg.product.images?.length ?? 0, cfg.audience.exposureMix);
+  const est = useMemo(() => estimate(cfg.cost, cfg.variantB.enabled, cfg.aspects.length, avgImages), [cfg.cost, cfg.variantB.enabled, cfg.aspects.length, avgImages]);
+  const modelOptions = (Object.keys(PRICES) as ModelId[]).map((v) => ({
+    v, l: PRICES[v].label, disabled: withImages && !supportsVision(v), title: withImages && !supportsVision(v) ? '这个模型看不了图；有截图时只能用识图模型' : undefined,
+  }));
   const checks = useMemo(() => ({ m: morwitzChecks(cfg), f: framingChecks(cfg) }), [cfg]);
   const totalW = Object.values(cfg.audience.countryWeights).reduce((s, x) => s + x, 0) || 1;
   const domesticShare = (cfg.audience.countryWeights.CN ?? 0) / totalW;
@@ -77,7 +99,8 @@ export function NewRun() {
   const promptSample = useMemo(() => {
     if (!showPrompt || !preview?.length) return null;
     const persona = preview[0];
-    return { sys: buildSystem(cfg, 'A', persona.exposure), user: buildUser(cfg, 'A', persona, makeRng(1)).text };
+    const u = buildUser(cfg, 'A', persona, makeRng(1));
+    return { sys: buildSystem(cfg, 'A', persona.exposure), user: u.text, images: u.images };
   }, [showPrompt, preview, cfg]);
 
   return (
@@ -113,6 +136,10 @@ export function NewRun() {
               <Field label="阶段" className="c4"><select value={p.stage} onChange={(e) => setP({ stage: e.target.value as RunConfig['product']['stage'] })}>{['概念', '即将上线', '已上线'].map((c) => <option key={c}>{c}</option>)}</select></Field>
               <Field label="评分 / 口碑" hint="看商店页及以上的人能看到" className="c6"><input type="text" value={p.storeRating} onChange={(e) => setP({ storeRating: e.target.value })} placeholder="例如：4.6 分，2 万条评价" /></Field>
               <Field label="现有替代做法" hint="比较题的参照点，用逗号分隔" className="c6"><input type="text" value={p.alternative} onChange={(e) => setP({ alternative: e.target.value })} placeholder="例如：手机备忘录、Keep" /></Field>
+              <div className="f c12">
+                <span>界面截图 <span className="hint">有图时自动改用「{PRICES[VISION_MODEL].label}」模型，在页面空白处直接粘贴也行</span></span>
+                <ImagePicker value={p.images ?? []} onChange={(images) => setP({ images })} globalPaste />
+              </div>
             </div>
           </Card>
 
@@ -148,6 +175,10 @@ export function NewRun() {
                 <Field label="试用到期默认" className="c4"><select value={cfg.variantB.trialDefault ?? ''} onChange={(e) => setB({ trialDefault: (e.target.value || undefined) as RunConfig['product']['trialDefault'] })}><option value="">同 A</option>{['自动转付费', '到期停止', '无试用'].map((c) => <option key={c}>{c}</option>)}</select></Field>
                 <Field label="价格说法" className="c12"><input type="text" value={cfg.variantB.priceFraming ?? ''} onChange={(e) => setB({ priceFraming: e.target.value })} placeholder={p.priceFraming || '例如：一次付清全年 168 元'} /></Field>
                 <Field label="完整介绍" className="c12"><textarea rows={2} value={cfg.variantB.description ?? ''} onChange={(e) => setB({ description: e.target.value })} placeholder="留空则同 A" /></Field>
+                <div className="f c12">
+                  <span>界面截图 <span className="hint">对比两版界面时用</span></span>
+                  <ImagePicker value={cfg.variantB.images ?? []} onChange={(images) => setB({ images })} emptyHint="留空则沿用 A 的截图。上传后，看 B 的人只看到这一组。" />
+                </div>
               </div>
             )}
           </Card>
@@ -221,7 +252,7 @@ export function NewRun() {
             <div className="step-title"><span className="step-no">06</span><h2>成本与精度</h2></div>
             <div className="row" style={{ marginBottom: 14 }}>
               {COST_PRESETS.map((c) => (
-                <button key={c.id} className="chip" onClick={() => setC({ ...c.cost, budgetCNY: Math.max(cfg.cost.budgetCNY, Math.ceil(estimate({ ...cfg.cost, ...c.cost }, cfg.variantB.enabled, cfg.aspects.length).high)) })}>
+                <button key={c.id} className="chip" onClick={() => setC({ ...c.cost, budgetCNY: Math.max(cfg.cost.budgetCNY, Math.ceil(estimate({ ...cfg.cost, ...c.cost }, cfg.variantB.enabled, cfg.aspects.length, avgImages).high)) })}>
                   <b>{c.label}</b> <span className="muted">{c.desc}</span>
                 </button>
               ))}
@@ -235,7 +266,8 @@ export function NewRun() {
                 <SliderRow label="预算上限（元）" value={cfg.cost.budgetCNY} min={1} max={500} onChange={(v) => setC({ budgetCNY: v })} fmt={(v) => `¥${v}`} />
               </div>
               <div className="col">
-                <div className="row"><span className="small" style={{ width: 90 }}>模型</span><Seg value={cfg.cost.model} options={Object.entries(PRICES).map(([v, x]) => ({ v: v as RunConfig['cost']['model'], l: x.label }))} onChange={(v) => setC({ model: v })} /></div>
+                <div className="row"><span className="small" style={{ width: 90 }}>模型</span><Seg value={cfg.cost.model} options={modelOptions} onChange={(v) => setC({ model: v })} /></div>
+                {withImages && <div className="tiny muted">带了截图，模拟的人改用识图模型（价格同 Flash，每张图约 384 tokens）。</div>}
                 <div className="row"><span className="small" style={{ width: 90 }}>思考深度</span><Seg value={cfg.cost.thinking} options={[{ v: 'off', l: '关' }, { v: 'low', l: '低' }, { v: 'high', l: '高' }, { v: 'max', l: '最高' }]} onChange={(v) => setC({ thinking: v })} /></div>
                 <div className="row"><span className="small" style={{ width: 90 }}>回答篇幅</span><Seg value={cfg.cost.detail} options={[{ v: 'brief', l: '简洁' }, { v: 'standard', l: '标准' }, { v: 'deep', l: '详尽' }]} onChange={(v) => setC({ detail: v })} /></div>
                 <label className="check"><input type="checkbox" checked={cfg.cost.autoReport} onChange={(e) => setC({ autoReport: e.target.checked })} /> 跑完后自动生成 AI 解读报告</label>
@@ -286,7 +318,8 @@ export function NewRun() {
               <div className="col mt16">
                 <div className="small muted">系统提示（同一次预测里所有人共享，命中缓存）</div>
                 <pre className="card small" style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--mono)', fontSize: 11 }}>{promptSample.sys}</pre>
-                <div className="small muted">用户消息（每个人不同）</div>
+                <div className="small muted">用户消息（每个人不同）{promptSample.images.length ? `，开头附带 ${promptSample.images.length} 张截图` : ''}</div>
+                <Thumbs images={promptSample.images} small />
                 <pre className="card small" style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--mono)', fontSize: 11 }}>{promptSample.user}</pre>
               </div>
             )}

@@ -80,9 +80,10 @@ export function reportMessages(run: Run, filters: Filters | null, scope: string)
   const data = summarize(run, rows);
   const p = run.config.product;
   const q = run.config.question;
+  const { images: bImages, ...variantB } = run.config.variantB;
   const context = {
-    产品: { 名称: p.name, 一句话: p.tagline, 介绍: p.description, 类别: p.category, 形态: p.form, 阶段: p.stage, 定价: `${p.pricingModel} ${p.priceCNY} 元/${p.pricePeriod}${p.priceUSD ? `，海外 ${p.priceUSD} USD` : ''}`, 价格说法: p.priceFraming, 试用: `${p.trialDays} 天，到期${p.trialDefault}，${p.cardForTrial ? '需绑卡' : '不绑卡'}`, 现有替代: p.alternative },
-    对照版本B: run.config.variantB.enabled ? run.config.variantB : null,
+    产品: { 名称: p.name, 一句话: p.tagline, 介绍: p.description, 类别: p.category, 形态: p.form, 阶段: p.stage, 定价: `${p.pricingModel} ${p.priceCNY} 元/${p.pricePeriod}${p.priceUSD ? `，海外 ${p.priceUSD} USD` : ''}`, 价格说法: p.priceFraming, 试用: `${p.trialDays} 天，到期${p.trialDefault}，${p.cardForTrial ? '需绑卡' : '不绑卡'}`, 现有替代: p.alternative, 截图张数: p.images?.length ?? 0 },
+    对照版本B: variantB.enabled ? { ...variantB, 截图张数: bImages?.length ?? 0 } : null,
     时间窗: q.window,
     外部基础率: { 试用: q.baseRateTry, 付费: q.baseRatePay },
     范围: scope,
